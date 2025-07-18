@@ -42,6 +42,12 @@
     
     .interactive-location {
       cursor: pointer;
+      pointer-events: all;
+      -webkit-tap-highlight-color: transparent;
+    }
+    
+    .interactive-location:hover {
+      opacity: 0.8;
     }
     
     .popup-overlay {
@@ -2620,6 +2626,7 @@
   
   // Touch event handlers
   mapContainer.addEventListener('touchstart', function(e) {
+    // Don't prevent default for single touches to allow clicks
     if (e.touches.length === 2) {
       e.preventDefault();
       isPinching = true;
@@ -2627,11 +2634,14 @@
       lastDistance = getDistance(e.touches);
       currentScale = scale;
     } else if (e.touches.length === 1 && scale > 1) {
-      isPanning = true;
-      lastTouchX = e.touches[0].clientX;
-      lastTouchY = e.touches[0].clientY;
+      // Check if the target is an interactive element
+      if (!e.target.closest('.interactive-location')) {
+        isPanning = true;
+        lastTouchX = e.touches[0].clientX;
+        lastTouchY = e.touches[0].clientY;
+      }
     }
-  });
+  }, { passive: false });
   
   mapContainer.addEventListener('touchmove', function(e) {
     if (isPinching && e.touches.length === 2) {
@@ -2640,7 +2650,9 @@
       const newDistance = getDistance(e.touches);
       const scaleDelta = newDistance / lastDistance;
       
-      scale = Math.max(1, Math.min(5, currentScale * scaleDelta));
+      // Update scale based on the pinch gesture
+      const newScale = currentScale * scaleDelta;
+      scale = Math.max(1, Math.min(5, newScale));
       
       // Zoom towards touch center
       if (scale > 1) {
@@ -2673,11 +2685,13 @@
       constrainPan();
       updateTransform();
     }
-  });
+  }, { passive: false });
   
   mapContainer.addEventListener('touchend', function(e) {
     if (e.touches.length < 2) {
       isPinching = false;
+      // Important: Update currentScale to maintain the zoom level
+      currentScale = scale;
     }
     if (e.touches.length === 0) {
       isPanning = false;
@@ -2771,9 +2785,9 @@
     lastTap = currentTime;
   });
   
-  // Prevent default touch behavior
+  // Prevent default touch behavior only for multi-touch
   document.addEventListener('touchstart', function(e) {
-    if (e.target.closest('#map-container')) {
+    if (e.target.closest('#map-container') && e.touches.length > 1) {
       e.preventDefault();
     }
   }, { passive: false });
