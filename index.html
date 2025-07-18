@@ -2577,7 +2577,6 @@
   
   // Pinch-to-zoom functionality
   let scale = 1;
-  let currentScale = 1;
   let translateX = 0;
   let translateY = 0;
   let isPinching = false;
@@ -2632,7 +2631,6 @@
       isPinching = true;
       isPanning = false;
       lastDistance = getDistance(e.touches);
-      currentScale = scale;
     } else if (e.touches.length === 1 && scale > 1) {
       // Check if the target is an interactive element
       if (!e.target.closest('.interactive-location')) {
@@ -2650,9 +2648,11 @@
       const newDistance = getDistance(e.touches);
       const scaleDelta = newDistance / lastDistance;
       
-      // Update scale based on the pinch gesture
-      const newScale = currentScale * scaleDelta;
-      scale = Math.max(1, Math.min(5, newScale));
+      // Calculate new scale from current scale, not from initial scale
+      scale = Math.max(1, Math.min(5, scale * scaleDelta));
+      
+      // Update last distance for next move event
+      lastDistance = newDistance;
       
       // Zoom towards touch center
       if (scale > 1) {
@@ -2690,8 +2690,6 @@
   mapContainer.addEventListener('touchend', function(e) {
     if (e.touches.length < 2) {
       isPinching = false;
-      // Important: Update currentScale to maintain the zoom level
-      currentScale = scale;
     }
     if (e.touches.length === 0) {
       isPanning = false;
