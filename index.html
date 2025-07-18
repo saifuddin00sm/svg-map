@@ -2576,123 +2576,162 @@
   
   
   // Pinch-to-zoom functionality
-  let scale = 1;
-  let translateX = 0;
-  let translateY = 0;
-  let isPinching = false;
-  let lastDistance = 0;
-  let lastTouchX = 0;
-  let lastTouchY = 0;
-  let isPanning = false;
-  
   const mapWrapper = document.getElementById('map-wrapper');
   const mapContainer = document.getElementById('map-container');
   
+  // Zoom state
+  let transform = {
+    scale: 1,
+    x: 0,
+    y: 0
+  };
+  
+  // Touch state
+  let touches = {
+    start: [],
+    current: [],
+    lastCenter: null,
+    lastDistance: 0
+  };
+  
+  // Flags
+  let isPinching = false;
+  let isPanning = false;
+  
   // Helper function to get distance between two touch points
-  function getDistance(touches) {
-    const dx = touches[0].clientX - touches[1].clientX;
-    const dy = touches[0].clientY - touches[1].clientY;
+  function getDistance(t1, t2) {
+    const dx = t1.clientX - t2.clientX;
+    const dy = t1.clientY - t2.clientY;
     return Math.sqrt(dx * dx + dy * dy);
   }
   
   // Helper function to get center point between two touches
-  function getTouchCenter(touches) {
+  function getCenter(t1, t2) {
     return {
-      x: (touches[0].clientX + touches[1].clientX) / 2,
-      y: (touches[0].clientY + touches[1].clientY) / 2
+      x: (t1.clientX + t2.clientX) / 2,
+      y: (t1.clientY + t2.clientY) / 2
     };
   }
   
   // Apply transform to map
   function updateTransform() {
-    mapWrapper.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+    mapWrapper.style.transform = `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`;
   }
   
   // Constrain pan within bounds
-  function constrainPan() {
-    const rect = mapWrapper.getBoundingClientRect();
+  function constrainTransform() {
     const containerRect = mapContainer.getBoundingClientRect();
+    const scaledWidth = containerRect.width * transform.scale;
+    const scaledHeight = containerRect.height * transform.scale;
     
-    const scaledWidth = containerRect.width * scale;
-    const scaledHeight = containerRect.height * scale;
+    const maxX = Math.max(0, (scaledWidth - containerRect.width) / 2);
+    const maxY = Math.max(0, (scaledHeight - containerRect.height) / 2);
     
-    const maxTranslateX = Math.max(0, (scaledWidth - containerRect.width) / 2);
-    const maxTranslateY = Math.max(0, (scaledHeight - containerRect.height) / 2);
+    transform.x = Math.max(-maxX, Math.min(maxX, transform.x));
+    transform.y = Math.max(-maxY, Math.min(maxY, transform.y));
     
-    translateX = Math.max(-maxTranslateX, Math.min(maxTranslateX, translateX));
-    translateY = Math.max(-maxTranslateY, Math.min(maxTranslateY, translateY));
+    // Reset position if scale is 1
+    if (transform.scale === 1) {
+      transform.x = 0;
+      transform.y = 0;
+    }
   }
   
   // Touch event handlers
   mapContainer.addEventListener('touchstart', function(e) {
-    // Don't prevent default for single touches to allow clicks
-    if (e.touches.length === 2) {
+    const touchList = Array.from(e.touches);
+    
+    if (touchList.length === 2) {
       e.preventDefault();
       isPinching = true;
       isPanning = false;
-      lastDistance = getDistance(e.touches);
-    } else if (e.touches.length === 1 && scale > 1) {
-      // Check if the target is an interactive element
+      
+      // Store initial touch positions
+      touches.start = touchList.map(t => ({ x: t.clientX, y: t.clientY }));
+      touches.current = touches.start.slice();
+      touches.lastDistance = getDistance(touchList[0], touchList[1]);
+      touches.lastCenter = getCenter(touchList[0], touchList[1]);
+    } else if (touchList.length === 1 && transform.scale > 1) {
+      // Only allow panning when zoomed in and not on interactive elements
       if (!e.target.closest('.interactive-location')) {
         isPanning = true;
-        lastTouchX = e.touches[0].clientX;
-        lastTouchY = e.touches[0].clientY;
+        isPinching = false;
+        touches.start = [{ x: touchList[0].clientX, y: touchList[0].clientY }];
+        touches.current = touches.start.slice();
       }
     }
   }, { passive: false });
   
   mapContainer.addEventListener('touchmove', function(e) {
-    if (isPinching && e.touches.length === 2) {
+    const touchList = Array.from(e.touches);
+    
+    if (isPinching && touchList.length === 2) {
       e.preventDefault();
       
-      const newDistance = getDistance(e.touches);
-      const scaleDelta = newDistance / lastDistance;
+      // Update current touch positions
+      touches.current = touchList.map(t => ({ x: t.clientX, y: t.clientY }));
       
-      // Calculate new scale from current scale, not from initial scale
-      scale = Math.max(1, Math.min(5, scale * scaleDelta));
+      // Calculate scale
+      const currentDistance = getDistance(touchList[0], touchList[1]);
+      const scale = currentDistance / touches.lastDistance;
       
-      // Update last distance for next move event
-      lastDistance = newDistance;
+      // Calculate new scale value
+      const newScale = transform.scale * scale;
+      transform.scale = Math.max(1, Math.min(5, newScale));
       
-      // Zoom towards touch center
-      if (scale > 1) {
-        const center = getTouchCenter(e.touches);
-        const rect = mapContainer.getBoundingClientRect();
-        const x = center.x - rect.left - rect.width / 2;
-        const y = center.y - rect.top - rect.height / 2;
+      // Calculate zoom center
+      const currentCenter = getCenter(touchList[0], touchList[1]);
+      const rect = mapContainer.getBoundingClientRect();
+      
+      // Adjust position to zoom towards pinch center
+      if (transform.scale > 1) {
+        const dx = currentCenter.x - touches.lastCenter.x;
+        const dy = currentCenter.y - touches.lastCenter.y;
         
-        translateX = -x * (scale - 1);
-        translateY = -y * (scale - 1);
-      } else {
-        translateX = 0;
-        translateY = 0;
+        transform.x += dx;
+        transform.y += dy;
+        
+        // Zoom towards center
+        const zoomPointX = currentCenter.x - rect.left - rect.width / 2;
+        const zoomPointY = currentCenter.y - rect.top - rect.height / 2;
+        
+        transform.x -= zoomPointX * (scale - 1);
+        transform.y -= zoomPointY * (scale - 1);
       }
       
-      constrainPan();
+      // Update last values for next frame
+      touches.lastDistance = currentDistance;
+      touches.lastCenter = currentCenter;
+      
+      constrainTransform();
       updateTransform();
-    } else if (isPanning && e.touches.length === 1 && scale > 1) {
+      
+    } else if (isPanning && touchList.length === 1 && transform.scale > 1) {
       e.preventDefault();
       
-      const deltaX = e.touches[0].clientX - lastTouchX;
-      const deltaY = e.touches[0].clientY - lastTouchY;
+      const current = { x: touchList[0].clientX, y: touchList[0].clientY };
+      const dx = current.x - touches.current[0].x;
+      const dy = current.y - touches.current[0].y;
       
-      translateX += deltaX;
-      translateY += deltaY;
+      transform.x += dx;
+      transform.y += dy;
       
-      lastTouchX = e.touches[0].clientX;
-      lastTouchY = e.touches[0].clientY;
+      touches.current[0] = current;
       
-      constrainPan();
+      constrainTransform();
       updateTransform();
     }
   }, { passive: false });
   
   mapContainer.addEventListener('touchend', function(e) {
-    if (e.touches.length < 2) {
-      isPinching = false;
-    }
     if (e.touches.length === 0) {
+      isPinching = false;
       isPanning = false;
+      touches.start = [];
+      touches.current = [];
+    } else if (e.touches.length === 1) {
+      isPinching = false;
+      // Could transition to panning here if needed
     }
   });
   
@@ -2701,86 +2740,89 @@
     e.preventDefault();
     
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    const newScale = Math.max(1, Math.min(5, scale * delta));
+    const newScale = Math.max(1, Math.min(5, transform.scale * delta));
     
-    if (newScale !== scale) {
+    if (newScale !== transform.scale) {
       const rect = mapContainer.getBoundingClientRect();
-      const x = e.clientX - rect.left - rect.width / 2;
-      const y = e.clientY - rect.top - rect.height / 2;
+      const mouseX = e.clientX - rect.left - rect.width / 2;
+      const mouseY = e.clientY - rect.top - rect.height / 2;
       
-      if (newScale > 1) {
-        translateX = -x * (newScale - 1);
-        translateY = -y * (newScale - 1);
-      } else {
-        translateX = 0;
-        translateY = 0;
-      }
+      // Calculate scale change
+      const scaleChange = newScale / transform.scale;
       
-      scale = newScale;
-      constrainPan();
+      // Update scale
+      transform.scale = newScale;
+      
+      // Adjust position to zoom towards mouse position
+      transform.x = mouseX - (mouseX - transform.x) * scaleChange;
+      transform.y = mouseY - (mouseY - transform.y) * scaleChange;
+      
+      constrainTransform();
       updateTransform();
     }
-  });
+  }, { passive: false });
   
   // Mouse drag for desktop
   let isMouseDragging = false;
-  let mouseStartX = 0;
-  let mouseStartY = 0;
+  let mouseStart = { x: 0, y: 0 };
   
   mapContainer.addEventListener('mousedown', function(e) {
-    if (scale > 1) {
+    if (transform.scale > 1 && !e.target.closest('.interactive-location')) {
       isMouseDragging = true;
-      mouseStartX = e.clientX - translateX;
-      mouseStartY = e.clientY - translateY;
+      mouseStart.x = e.clientX - transform.x;
+      mouseStart.y = e.clientY - transform.y;
       mapContainer.style.cursor = 'grabbing';
+      e.preventDefault();
     }
   });
   
   mapContainer.addEventListener('mousemove', function(e) {
-    if (isMouseDragging && scale > 1) {
-      translateX = e.clientX - mouseStartX;
-      translateY = e.clientY - mouseStartY;
-      constrainPan();
+    if (isMouseDragging && transform.scale > 1) {
+      transform.x = e.clientX - mouseStart.x;
+      transform.y = e.clientY - mouseStart.y;
+      constrainTransform();
       updateTransform();
     }
   });
   
   mapContainer.addEventListener('mouseup', function() {
     isMouseDragging = false;
-    if (scale > 1) {
-      mapContainer.style.cursor = 'grab';
-    } else {
-      mapContainer.style.cursor = 'default';
-    }
+    updateCursor();
   });
   
   mapContainer.addEventListener('mouseleave', function() {
     isMouseDragging = false;
-    mapContainer.style.cursor = 'default';
+    updateCursor();
   });
   
   // Update cursor style based on scale
   function updateCursor() {
-    if (scale > 1) {
+    if (transform.scale > 1) {
       mapContainer.style.cursor = 'grab';
     } else {
       mapContainer.style.cursor = 'default';
     }
   }
   
+  // Initialize cursor
+  updateCursor();
+  
   // Reset zoom on double tap
   let lastTap = 0;
   mapContainer.addEventListener('touchend', function(e) {
-    const currentTime = new Date().getTime();
-    const tapLength = currentTime - lastTap;
-    if (tapLength < 300 && tapLength > 0) {
-      e.preventDefault();
-      scale = 1;
-      translateX = 0;
-      translateY = 0;
-      updateTransform();
+    if (e.touches.length === 0 && !e.target.closest('.interactive-location')) {
+      const currentTime = new Date().getTime();
+      const tapLength = currentTime - lastTap;
+      if (tapLength < 300 && tapLength > 0) {
+        e.preventDefault();
+        transform.scale = 1;
+        transform.x = 0;
+        transform.y = 0;
+        updateTransform();
+        updateCursor();
+      }
+      lastTap = currentTime;
     }
-    lastTap = currentTime;
   });
   
   // Prevent default touch behavior only for multi-touch
