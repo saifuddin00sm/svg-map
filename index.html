@@ -1,16 +1,49 @@
-<meta>
- 
- <title>
-  Interactive Map with Popups
- </title>
- <style>
-  svg {
-      max-width: 100%;
-      height: auto;
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Interactive Map with Popups</title>
+  <style>
+    * {
+      box-sizing: border-box;
     }
+    
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      touch-action: none;
+    }
+    
+    #map-container {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      position: relative;
+      touch-action: none;
+    }
+    
+    #map-wrapper {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      transform-origin: center center;
+      transition: none;
+      touch-action: none;
+    }
+    
+    svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+      touch-action: none;
+    }
+    
     .interactive-location {
       cursor: pointer;
     }
+    
     .popup-overlay {
       position: fixed;
       top: 0;
@@ -22,22 +55,42 @@
       justify-content: center;
       align-items: center;
       z-index: 1000;
+      touch-action: auto;
     }
+    
     .popup-content {
       background: #fff;
       padding: 20px;
       border-radius: 10px;
       max-width: 90%;
+      max-height: 80vh;
+      overflow-y: auto;
       box-shadow: 0 0 10px rgba(0,0,0,0.3);
+      position: relative;
+      transform: scale(1) !important;
     }
+    
     .close-popup {
       float: right;
-      font-size: 20px;
+      font-size: 24px;
       cursor: pointer;
+      line-height: 1;
+      margin: -5px -5px 10px 10px;
     }
- </style>
- <!--?xml version="1.0"?-->
- <svg version="1.1" viewBox="0 0 743.2 401.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    
+    @media (max-width: 768px) {
+      .popup-content {
+        max-width: 95%;
+        max-height: 70vh;
+        padding: 15px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="map-container">
+    <div id="map-wrapper">
+      <svg version="1.1" viewBox="0 0 743.2 401.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
   <!-- Generator: Adobe Illustrator 29.5.1, SVG Export Plug-In . SVG Version: 2.1.0 Build 141)  -->
   <defs>
    <style>
@@ -2420,16 +2473,16 @@
     </path>
    </g>
   </g>
- </svg>
- <div id="popup" class="popup-overlay" onclick="hidePopup()">
-  <div class="popup-content" onclick="event.stopPropagation()">
-   <span class="close-popup" onclick="hidePopup()">
-    ×
-   </span>
-   <div id="popup-text">
-   </div>
+      </svg>
+    </div>
   </div>
- </div>
+  
+  <div id="popup" class="popup-overlay" onclick="hidePopup()">
+    <div class="popup-content" onclick="event.stopPropagation()">
+      <span class="close-popup" onclick="hidePopup()">&times;</span>
+      <div id="popup-text"></div>
+    </div>
+  </div>
  <script>
   const programs = {
     safehome: {
@@ -2514,4 +2567,228 @@
   function hidePopup() {
     document.getElementById('popup').style.display = 'none';
   }
- </script>
+  
+  
+  // Pinch-to-zoom functionality
+  let scale = 1;
+  let currentScale = 1;
+  let translateX = 0;
+  let translateY = 0;
+  let isPinching = false;
+  let lastDistance = 0;
+  let lastTouchX = 0;
+  let lastTouchY = 0;
+  let isPanning = false;
+  
+  const mapWrapper = document.getElementById('map-wrapper');
+  const mapContainer = document.getElementById('map-container');
+  
+  // Helper function to get distance between two touch points
+  function getDistance(touches) {
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+  
+  // Helper function to get center point between two touches
+  function getTouchCenter(touches) {
+    return {
+      x: (touches[0].clientX + touches[1].clientX) / 2,
+      y: (touches[0].clientY + touches[1].clientY) / 2
+    };
+  }
+  
+  // Apply transform to map
+  function updateTransform() {
+    mapWrapper.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+  }
+  
+  // Constrain pan within bounds
+  function constrainPan() {
+    const rect = mapWrapper.getBoundingClientRect();
+    const containerRect = mapContainer.getBoundingClientRect();
+    
+    const scaledWidth = containerRect.width * scale;
+    const scaledHeight = containerRect.height * scale;
+    
+    const maxTranslateX = Math.max(0, (scaledWidth - containerRect.width) / 2);
+    const maxTranslateY = Math.max(0, (scaledHeight - containerRect.height) / 2);
+    
+    translateX = Math.max(-maxTranslateX, Math.min(maxTranslateX, translateX));
+    translateY = Math.max(-maxTranslateY, Math.min(maxTranslateY, translateY));
+  }
+  
+  // Touch event handlers
+  mapContainer.addEventListener('touchstart', function(e) {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      isPinching = true;
+      isPanning = false;
+      lastDistance = getDistance(e.touches);
+      currentScale = scale;
+    } else if (e.touches.length === 1 && scale > 1) {
+      isPanning = true;
+      lastTouchX = e.touches[0].clientX;
+      lastTouchY = e.touches[0].clientY;
+    }
+  });
+  
+  mapContainer.addEventListener('touchmove', function(e) {
+    if (isPinching && e.touches.length === 2) {
+      e.preventDefault();
+      
+      const newDistance = getDistance(e.touches);
+      const scaleDelta = newDistance / lastDistance;
+      
+      scale = Math.max(1, Math.min(5, currentScale * scaleDelta));
+      
+      // Zoom towards touch center
+      if (scale > 1) {
+        const center = getTouchCenter(e.touches);
+        const rect = mapContainer.getBoundingClientRect();
+        const x = center.x - rect.left - rect.width / 2;
+        const y = center.y - rect.top - rect.height / 2;
+        
+        translateX = -x * (scale - 1);
+        translateY = -y * (scale - 1);
+      } else {
+        translateX = 0;
+        translateY = 0;
+      }
+      
+      constrainPan();
+      updateTransform();
+    } else if (isPanning && e.touches.length === 1 && scale > 1) {
+      e.preventDefault();
+      
+      const deltaX = e.touches[0].clientX - lastTouchX;
+      const deltaY = e.touches[0].clientY - lastTouchY;
+      
+      translateX += deltaX;
+      translateY += deltaY;
+      
+      lastTouchX = e.touches[0].clientX;
+      lastTouchY = e.touches[0].clientY;
+      
+      constrainPan();
+      updateTransform();
+    }
+  });
+  
+  mapContainer.addEventListener('touchend', function(e) {
+    if (e.touches.length < 2) {
+      isPinching = false;
+    }
+    if (e.touches.length === 0) {
+      isPanning = false;
+    }
+  });
+  
+  // Mouse wheel zoom for desktop
+  mapContainer.addEventListener('wheel', function(e) {
+    e.preventDefault();
+    
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    const newScale = Math.max(1, Math.min(5, scale * delta));
+    
+    if (newScale !== scale) {
+      const rect = mapContainer.getBoundingClientRect();
+      const x = e.clientX - rect.left - rect.width / 2;
+      const y = e.clientY - rect.top - rect.height / 2;
+      
+      if (newScale > 1) {
+        translateX = -x * (newScale - 1);
+        translateY = -y * (newScale - 1);
+      } else {
+        translateX = 0;
+        translateY = 0;
+      }
+      
+      scale = newScale;
+      constrainPan();
+      updateTransform();
+    }
+  });
+  
+  // Mouse drag for desktop
+  let isMouseDragging = false;
+  let mouseStartX = 0;
+  let mouseStartY = 0;
+  
+  mapContainer.addEventListener('mousedown', function(e) {
+    if (scale > 1) {
+      isMouseDragging = true;
+      mouseStartX = e.clientX - translateX;
+      mouseStartY = e.clientY - translateY;
+      mapContainer.style.cursor = 'grabbing';
+    }
+  });
+  
+  mapContainer.addEventListener('mousemove', function(e) {
+    if (isMouseDragging && scale > 1) {
+      translateX = e.clientX - mouseStartX;
+      translateY = e.clientY - mouseStartY;
+      constrainPan();
+      updateTransform();
+    }
+  });
+  
+  mapContainer.addEventListener('mouseup', function() {
+    isMouseDragging = false;
+    if (scale > 1) {
+      mapContainer.style.cursor = 'grab';
+    } else {
+      mapContainer.style.cursor = 'default';
+    }
+  });
+  
+  mapContainer.addEventListener('mouseleave', function() {
+    isMouseDragging = false;
+    mapContainer.style.cursor = 'default';
+  });
+  
+  // Update cursor style based on scale
+  function updateCursor() {
+    if (scale > 1) {
+      mapContainer.style.cursor = 'grab';
+    } else {
+      mapContainer.style.cursor = 'default';
+    }
+  }
+  
+  // Reset zoom on double tap
+  let lastTap = 0;
+  mapContainer.addEventListener('touchend', function(e) {
+    const currentTime = new Date().getTime();
+    const tapLength = currentTime - lastTap;
+    if (tapLength < 300 && tapLength > 0) {
+      e.preventDefault();
+      scale = 1;
+      translateX = 0;
+      translateY = 0;
+      updateTransform();
+    }
+    lastTap = currentTime;
+  });
+  
+  // Prevent default touch behavior
+  document.addEventListener('touchstart', function(e) {
+    if (e.target.closest('#map-container')) {
+      e.preventDefault();
+    }
+  }, { passive: false });
+  
+  document.addEventListener('gesturestart', function(e) {
+    e.preventDefault();
+  });
+  
+  document.addEventListener('gesturechange', function(e) {
+    e.preventDefault();
+  });
+  
+  document.addEventListener('gestureend', function(e) {
+    e.preventDefault();
+  });
+  </script>
+</body>
+</html>
